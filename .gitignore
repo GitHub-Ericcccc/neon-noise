@@ -1,1 +1,5 @@
 artifacts/
+
+# Local planning documents must never be published.
+neon-noise_Spectroid风格开发修改方案_20260911.md
+.local/

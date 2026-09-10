@@ -2,3 +2,6 @@
 *.md text eol=lf
 *.cjs text eol=lf
 LICENSE text eol=lf
+artifacts/ export-ignore
+.local/ export-ignore
+neon-noise_*Spectroid*.md export-ignore
