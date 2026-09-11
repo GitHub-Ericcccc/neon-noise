@@ -20,7 +20,7 @@
 
 ## 在线使用
 
-[上游在线演示](https://arrow36.github.io/neon-noise/)展示上游版本，并非本 fork。本 fork 尚未公布经验证的在线部署地址；本地运行见下文。
+本 fork 在线部署地址为 [https://github-ericcccc.github.io/neon-noise/](https://github-ericcccc.github.io/neon-noise/)。[上游在线演示](https://arrow36.github.io/neon-noise/)展示上游版本。本地运行见下文。
 
 首次使用时，请允许浏览器访问麦克风。建议使用最新版 Chrome 或 Edge；部分内置浏览器可能不会开放麦克风接口。
 
