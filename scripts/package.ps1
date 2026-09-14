@@ -9,6 +9,7 @@ $gitArgs = @('-c',"safe.directory=$($repo.Replace('\','/'))",'-C',$repo)
 $head = & $GitPath @gitArgs rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read HEAD' }
 $publicFiles = @('.gitattributes','.gitignore','index.html','LICENSE','README.md','CHANGELOG.md','docs/validation.md','scripts/package.ps1','tests/analysis.cjs')
+$publicFiles += @('.nojekyll','experiments/record-logging/index.html','experiments/record-logging/impact-core.js','experiments/record-logging/impact-worklet.js','experiments/record-logging/record-files.js','experiments/record-logging/record-logging.js','experiments/record-logging/LICENSE','experiments/record-logging/README.md')
 & $GitPath @gitArgs archive --format=zip --prefix=neon-noise/ -o $archive HEAD -- @publicFiles
 if ($LASTEXITCODE -ne 0) { throw 'Archive failed' }
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)
