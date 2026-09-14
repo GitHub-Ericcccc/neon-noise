@@ -1,4 +1,4 @@
-param([string]$GitPath = 'git', [string]$Version = 'v1.0.0-spectroid.2')
+param([string]$GitPath = 'git', [string]$Version = 'record-logging-experimental.1')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $repo 'artifacts'
@@ -8,7 +8,7 @@ if (Test-Path -LiteralPath $archive) { throw 'Archive exists; use a new version 
 $gitArgs = @('-c',"safe.directory=$($repo.Replace('\','/'))",'-C',$repo)
 $head = & $GitPath @gitArgs rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read HEAD' }
-$publicFiles = @('.gitattributes','.gitignore','index.html','LICENSE','README.md','CHANGELOG.md','docs/validation.md','scripts/package.ps1','tests/analysis.cjs')
+$publicFiles = @('.gitattributes','.gitignore','.nojekyll','index.html','impact-core.js','impact-worklet.js','record-files.js','record-logging.js','LICENSE','README.md','CHANGELOG.md','docs/validation.md','scripts/package.ps1','scripts/serve.cjs','tests/analysis.cjs','tests/record-logging.cjs')
 & $GitPath @gitArgs archive --format=zip --prefix=neon-noise/ -o $archive HEAD -- @publicFiles
 if ($LASTEXITCODE -ne 0) { throw 'Archive failed' }
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)

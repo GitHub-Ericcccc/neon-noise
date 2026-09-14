@@ -76,6 +76,14 @@ SOFTWARE.
     #displayError { color:#ff9d9d; } .color-scale { display:flex; gap:8px; align-items:center; padding:6px 10px; color:#a2b0c5; font:10px Consolas,monospace; background:#101a2b; }
     #colorRamp { flex:1; height:8px; } .color-scale span { white-space:nowrap; }
     #sourceNotice { color:#dceba3; } .license-text { white-space:pre-wrap; font-size:11px; color:var(--muted); }
+    #impactPanel { margin:12px 0; padding:12px; background:#101a2b; border:1px solid #35455e; border-radius:6px; }
+    #impactPanel h2 { margin:0; font-size:16px; } #impactPanel p { overflow-wrap:anywhere; }
+    #recordMetrics { padding:10px 0; line-height:1.9; color:#f2d85b; }
+    #recordAudio { width:100%; margin:8px 0; } #energyTrace { height:160px; }
+    .event-scroll { overflow:auto; max-height:320px; } #impactPanel table { border-collapse:collapse; font-size:12px; width:100%; white-space:nowrap; }
+    #impactPanel td,#impactPanel th { padding:6px; border-bottom:1px solid #35455e; text-align:left; }
+    .impact-overlay { position:absolute; inset:0; height:100%; pointer-events:none; }
+    #detectSettings input { width:100px; } #recordStatus { min-height:40px; }
     @media(max-width:760px) { .shell { padding:8px; } .metrics { gap:12px; } .metric { display:block; } .metric-label { font-size:9px; } .metric-value { font-size:16px; } .controls { gap:6px; } button,select { min-height:42px; } .analysis-mode-control { flex:1 1 100%; } .analysis-mode-control select { flex:1; min-width:0; } #spectrum { height:300px; } #waterfall { height:390px; } h1 { font-size:20px; } .panel-head-tools { flex-wrap:wrap; } .subtitle { font-size:11px; } }
   </style>
 </head>
@@ -103,6 +111,7 @@ SOFTWARE.
             <option value="median">中位数频谱（稳定底噪）</option>
             <option value="maximum">最大响声频谱（短促异响）</option>
             <option value="noise">噪声频谱（噪声突出度＋出现率）</option>
+            <option value="impact">楼上噪声优化检测（实验）</option>
           </select>
         </label>
         <label class="gain-control">
@@ -137,6 +146,27 @@ SOFTWARE.
       </article>
     </section>
 
+    <section id="impactPanel" hidden>
+      <h2>楼上噪声优化检测 · 实验初版</h2>
+      <p>记录疑似低频撞击，不自动判定声源。候选次数不等于确认脚步数；相对电平 dBFS 不等于经校准的声压级。高灵敏规则可能误报，也可能漏检。</p>
+      <div class="controls">
+        <button id="recordStart" class="primary" type="button">开始记录（最长10分钟）</button>
+        <button id="recordStop" type="button" disabled>结束记录</button>
+        <button id="recordResume" type="button">恢复记录</button>
+        <button id="recordExport" type="button" disabled>准备导出 ZIP</button>
+        <a id="recordDownload" hidden>下载 ZIP</a>
+      </div>
+      <p id="recordStatus" role="status" aria-live="polite">仅本机保存完整音频与日志。请保持 Safari 前台，不承诺锁屏连续记录。</p>
+      <details><summary>实验检测参数 · 会话开始后锁定</summary><div id="detectSettings" class="settings-grid"></div></details>
+      <p>切换分析或“暂停显示”不停止录音；须点击“结束记录”。后台／音频中断不有效计数，恢复后重新学习背景。中断后的音频定位仅供估计，需人工核对。</p>
+      <div id="recordMetrics"></div><canvas id="energyTrace" aria-label="最近30秒低频能量曲线"></canvas>
+      <audio id="recordAudio" controls preload="metadata"></audio>
+      <div class="event-scroll"><table><thead><tr><th>ID</th><th>类型</th><th>开始秒</th><th>持续秒</th><th>滤波峰值dBFS</th><th>滤波RMS dBFS</th><th>增量dB</th><th>回听</th></tr></thead><tbody id="eventRows"></tbody></table></div>
+      <p>恢复本地会话：<select id="recordSaved" aria-label="本地已保存会话"><option value="">选择会话</option></select></p>
+      <div class="controls"><button id="recordConfirm" type="button" disabled>我已打开并核对导出的文件</button><button id="recordDelete" type="button" disabled>删除本地会话</button></div>
+      <p class="footer-note">导出包含完整音频、CSV、JSON、HTML报告、MIT与SHA-256清单。哈希用于核对文件完整性，不证明声源、可信时间或法律证据资格。未导出会话不会自动清除。</p>
+    </section>
+
     <section class="panel spectrum-stack">
       <div class="panel-head">
         <div class="panel-title" id="spectrumTitle">CURRENT SPECTRUM / 当前频谱</div>
@@ -147,6 +177,7 @@ SOFTWARE.
       </div>
       <div class="chart-wrap">
         <canvas id="spectrum"></canvas>
+        <canvas id="impactSpectrumOverlay" class="impact-overlay" hidden aria-hidden="true"></canvas>
         <svg id="spectrumOverlay" class="chart-overlay" preserveAspectRatio="none" aria-hidden="true"></svg>
         <form class="marker-editor" id="markerEditor" hidden>
           <label for="markerFrequency">输入频率</label>
@@ -165,6 +196,7 @@ SOFTWARE.
       </div>
       <div class="chart-wrap">
         <canvas id="waterfall"></canvas>
+        <canvas id="impactWaterfallOverlay" class="impact-overlay" hidden aria-hidden="true"></canvas>
         <svg id="waterfallOverlay" class="chart-overlay" preserveAspectRatio="none" aria-hidden="true"></svg>
       </div>
     </section>
@@ -196,6 +228,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.</pre></details>
   </div>
 
+  <script src="impact-core.js"></script>
+  <script src="record-files.js"></script>
   <script>
     const FFT_SIZE = 32768;
     const MIN_DB = -115;
@@ -878,7 +912,7 @@ SOFTWARE.</pre></details>
       if (!spectrum || !analyser) return;
       const captureTimestamp = capturedElapsedMs + Math.max(0, timestamp - captureStartedAt);
       const storedBinCount = Math.min(spectrum.length, getAnalysisBinLimit() + 1);
-      historyFrames.push({ timestamp: captureTimestamp, data: spectrum.slice(0, storedBinCount) });
+      historyFrames.push({ timestamp: captureTimestamp, performanceMs:timestamp, data: spectrum.slice(0, storedBinCount) });
       const cutoff = captureTimestamp - HISTORY_WINDOW_MS;
       while (historyFrames.length && historyFrames[0].timestamp < cutoff) historyFrames.shift();
       waterfallDirty = true;
@@ -994,6 +1028,7 @@ SOFTWARE.</pre></details>
       waterfallCtx.restore();
       renderWaterfallOverlay(width, height);
       historyWindowLabel.textContent = "TIME ↓ · 30 秒窗口";
+      window.ImpactLogging?.redraw();
     }
 
     function findPeaks(data) {
@@ -1284,6 +1319,11 @@ SOFTWARE.</pre></details>
     }
 
     function updateAnalyzeAvailability() {
+      if (analysisModeSelect.value === "impact") {
+        analyzeButton.disabled = true;
+        analyzeButton.textContent = "使用独立记录按钮";
+        return;
+      }
       if (showAnalysis) {
         analyzeButton.disabled = false;
         analyzeButton.textContent = "返回实时频谱";
@@ -1345,6 +1385,7 @@ SOFTWARE.</pre></details>
     }
 
     async function calculateSelectedAnalysis() {
+      if (analysisModeSelect.value === "impact") return;
       const frames = getRecentHistoryFrames();
       if (!frames.length) {
         updateAnalyzeAvailability();
@@ -1382,6 +1423,7 @@ SOFTWARE.</pre></details>
     }
 
     async function toggleHistoryAnalysis() {
+      if (analysisModeSelect.value === "impact") return;
       if (showAnalysis) {
         analysisTransitionToken++;
         showAnalysis = false;
@@ -1821,8 +1863,16 @@ SOFTWARE.</pre></details>
     updateColorScale();
     analyzeButton.addEventListener("click", toggleHistoryAnalysis);
     analysisModeSelect.addEventListener("change", () => {
+      if (analysisModeSelect.value === "impact") {
+        analysisComputeToken++; analysisTransitionToken++;
+        showAnalysis = false;
+        spectrumTitle.textContent = "CURRENT SPECTRUM / 当前频谱";
+        spectrumNote.textContent = "黄线：当前 · 红线：峰值保持 · 重点50～75Hz";
+        redrawCurrentSpectrum(); updateAnalyzeAvailability(); return;
+      }
       currentAnalysisMode = analysisModeSelect.value;
       if (showAnalysis) calculateSelectedAnalysis();
+      else updateAnalyzeAvailability();
     });
     clearButton.addEventListener("click", clearHistory);
     resetMarkerButton.addEventListener("click", resetCustomMarker);
@@ -1858,6 +1908,19 @@ SOFTWARE.</pre></details>
     updateAnalyzeAvailability();
     resizeCanvases();
     requestAnimationFrame(animate);
+    window.NoiseInput = {
+      ensure: async () => {
+        if (demoMode) throw new Error("模拟来源不可录音，请刷新后启动麦克风");
+        if (!audioContext) await startOrToggleCapture(false);
+        if (!audioContext || !microphoneStream || !microphoneSource) throw new Error("麦克风初始化未成功");
+        await reconnectMicrophoneIfNeeded();
+        return {context:audioContext,stream:microphoneStream,source:microphoneSource,demo:demoMode};
+      },
+      frequencyX: frequencyToX,
+      latestHistory: () => historyFrames.at(-1),
+      setRecording: active => { document.getElementById("demo").disabled = active || !!audioContext; }
+    };
   </script>
+  <script src="record-logging.js"></script>
 </body>
 </html>
