@@ -85,6 +85,18 @@ SOFTWARE.
     .impact-overlay { position:absolute; inset:0; height:100%; pointer-events:none; }
     #detectSettings input { width:100px; } #recordStatus { margin:8px 0; }
     @media(max-width:760px) { .shell { padding:8px; } .metrics { gap:12px; } .metric { display:block; } .metric-label { font-size:9px; } .metric-value { font-size:16px; } .controls { gap:6px; } button,select { min-height:42px; } .analysis-mode-control { flex:1 1 100%; } .analysis-mode-control select { flex:1; min-width:0; } #spectrum { height:300px; } #waterfall { height:390px; } h1 { font-size:20px; } .panel-head-tools { flex-wrap:wrap; } .subtitle { font-size:11px; } }
+    .record-toolbar { display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:8px; }
+    .record-toolbar button,.mode-picker { min-width:0;min-height:46px;font-size:16px; }
+    .mode-picker { position:relative;display:flex;align-items:center;justify-content:center;border:1px solid #35455e;border-radius:5px;background:#1a2940;padding:5px; }
+    .mode-picker select { position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:16px; }
+    .mode-picker:focus-within { outline:2px solid #75dce5; }
+    .secondary-controls { margin-top:8px; }
+    .gain-control { display:flex;font-size:16px;gap:12px;min-height:48px;margin-top:8px;color:var(--text); }
+    .gain-control input[type=range] { flex:1;min-width:0;width:auto;height:44px;appearance:none;background:transparent; }
+    .gain-control input::-webkit-slider-runnable-track { height:6px;background:#53657e;border-radius:3px; }
+    .gain-control input::-webkit-slider-thumb { appearance:none;width:24px;height:24px;margin-top:-9px;border-radius:50%;background:#dbe88a; }
+    .gain-control input::-moz-range-track { height:6px;background:#53657e;border-radius:3px; }
+    .gain-control input::-moz-range-thumb { width:24px;height:24px;border:0;border-radius:50%;background:#dbe88a; }
   </style>
 </head>
 <body>
@@ -99,30 +111,19 @@ SOFTWARE.
     </header>
 
     <section class="control-deck">
-      <div class="controls">
-        <button class="primary" id="start">启动麦克风</button>
-        <button id="demo" type="button">模拟信号</button>
-        <button class="analysis-button" id="analyze" type="button" disabled>分析历史频谱</button>
+      <div class="record-toolbar">
         <button id="recordStart" class="primary" type="button">开始记录</button>
-        <button id="recordStop" type="button" disabled>结束记录</button>
-        <button id="recordResume" type="button" hidden>恢复记录</button>
-        <button class="ghost" id="clear" type="button">清空历史</button>
-        <label class="analysis-mode-control">
-          <span>分析方式</span>
-          <select id="analysisMode" aria-label="历史频谱分析方式">
+        <button id="recordStop" type="button" disabled>停止记录</button>
+        <div class="mode-picker"><span id="modeCaption" aria-hidden="true">楼上噪声 ▾</span>          <select id="analysisMode" aria-label="历史频谱分析方式">
             <option value="mean">平均功率频谱（总体能量）</option>
             <option value="median">中位数频谱（稳定底噪）</option>
             <option value="maximum">最大响声频谱（短促异响）</option>
             <option value="noise">噪声频谱（噪声突出度＋出现率）</option>
             <option value="impact" selected>楼上噪声优化检测</option>
-          </select>
-        </label>
-        <label class="gain-control">
-          <span>INPUT GAIN</span>
-          <input id="gain" type="range" min="-24" max="24" value="0" step="1">
-          <output id="gainValue" for="gain">+0 dB</output>
-        </label>
+          </select></div>
       </div>
+      <div class="controls secondary-controls"><button id="clear" type="button">清空历史</button><button id="analyze" type="button" disabled>分析历史频谱</button><button id="recordResume" type="button" hidden>恢复记录</button></div>
+      <label class="gain-control"><span>输入增益</span><input id="gain" type="range" min="-24" max="24" value="0" step="1"><output id="gainValue" for="gain">+0 dB</output></label>
       <details class="display-settings"><summary>显示设置 · 色阶与输入增益独立</summary>
         <form id="displaySettings" class="settings-grid">
           <label>曲线下限 dBFS<input id="plotMin" type="number" min="-160" max="-10" step="5" value="-120" required></label>
@@ -151,7 +152,10 @@ SOFTWARE.
     </section>
 
     <p id="recordStatus" role="status" aria-live="polite">未开始</p>
-    <div id="recordMetrics"></div>
+      <details><summary>会话与导出</summary>
+        <p>本地会话：<select id="recordSaved" aria-label="本地已保存会话"><option value="">选择会话</option></select></p>
+        <div class="controls"><button id="recordExport" type="button" disabled>导出 ZIP</button><a id="recordDownload" hidden>下载 ZIP</a><button id="recordConfirm" type="button" disabled>确认已保存</button><button id="recordDelete" type="button" disabled>删除本地会话</button></div>
+      </details>
 
     <section class="panel spectrum-stack">
       <div class="panel-head">
@@ -171,7 +175,7 @@ SOFTWARE.
           <span>Hz</span>
           <button type="submit">定位</button>
         </form>
-        <div class="status" id="status">启动麦克风或开始记录</div>
+        <div class="status" id="status">点击开始记录</div>
       </div>
       <div class="shared-axis-wrap">
         <svg id="sharedAxis" preserveAspectRatio="none" role="img" aria-label="两张频谱图共用的频率横坐标"></svg>
@@ -192,12 +196,9 @@ SOFTWARE.
       <canvas id="energyTrace" aria-label="最近30秒低频能量曲线"></canvas>
       <div class="event-scroll"><table><thead><tr><th>ID</th><th>类型</th><th>开始秒</th><th>持续秒</th><th>滤波峰值dBFS</th><th>滤波RMS dBFS</th><th>增量dB</th><th>回听</th></tr></thead><tbody id="eventRows"></tbody></table></div>
       <audio id="recordAudio" controls preload="metadata" hidden></audio>
-      <details><summary>会话与导出</summary>
-        <p>本地会话：<select id="recordSaved" aria-label="本地已保存会话"><option value="">选择会话</option></select></p>
-        <div class="controls"><button id="recordExport" type="button" disabled>导出 ZIP</button><a id="recordDownload" hidden>下载 ZIP</a><button id="recordConfirm" type="button" disabled>确认已保存</button><button id="recordDelete" type="button" disabled>删除本地会话</button></div>
-      </details>
     </section>
     <p class="footer-note">派生自 <a href="https://github.com/Arrow36/neon-noise">Arrow36/neon-noise</a> · <a href="https://github.com/GitHub-Ericcccc/neon-noise">独立维护版本</a> · 视觉参考 Spectroid，非官方版本</p>
+    <div id="recordMetrics"></div>
     <details><summary>MIT 许可证</summary><pre class="license-text">MIT License
 
 Copyright (c) 2026 Arrow36
@@ -233,7 +234,7 @@ SOFTWARE.</pre></details>
     const HISTORY_WINDOW_MS = 30000;
     const view = { minDb: -120, maxDb: 0, waterfallMinDb: -110, waterfallMaxDb: -30 };
     let holdMode = "decay";
-    let demoMode = false;
+
     let waterfallDirty = true;
     const PLOT_LEFT = 46, PLOT_RIGHT = 12;
     const LOW_POWER_DEVICE = (window.matchMedia?.("(pointer: coarse)").matches ?? false) ||
@@ -250,7 +251,7 @@ SOFTWARE.</pre></details>
     const CUSTOM_GUIDE_WIDTH = 1.25;
     const CUSTOM_GUIDE_DASH = [6, 5];
 
-    const startButton = document.querySelector("#start");
+
     const analyzeButton = document.querySelector("#analyze");
     const analysisModeSelect = document.querySelector("#analysisMode");
     const clearButton = document.querySelector("#clear");
@@ -1426,16 +1427,6 @@ SOFTWARE.</pre></details>
         updateAnalyzeAvailability();
         redrawCurrentSpectrum();
       } else {
-        if (running && analyser) {
-          const stoppedAt = performance.now();
-          analyser.getFloatFrequencyData(spectrum);
-          updatePeakHold(lastSpectrumFrameAt ? stoppedAt - lastSpectrumFrameAt : SPECTRUM_FRAME_INTERVAL_MS);
-          pushWaterfallRow(stoppedAt);
-          drawWaterfall();
-          capturedElapsedMs += stoppedAt - captureStartedAt;
-          running = false;
-          setLiveState(false);
-        }
         await calculateSelectedAnalysis();
       }
     }
@@ -1478,8 +1469,8 @@ SOFTWARE.</pre></details>
 
     function setLiveState(isLive) {
       livePill.classList.toggle("is-live", isLive);
-      liveText.textContent = isLive ? "RECORDING" : "PAUSED";
-      startButton.textContent = isLive ? "暂停显示" : "继续采集";
+      liveText.textContent = isLive ? "RECORDING" : "STOPPED";
+
     }
 
     function getMicrophoneConstraints() {
@@ -1490,20 +1481,6 @@ SOFTWARE.</pre></details>
           autoGainControl: false
         }
       };
-    }
-
-    async function reconnectMicrophoneIfNeeded() {
-      if (demoMode) return;
-      const audioTracks = microphoneStream?.getAudioTracks() || [];
-      const hasUsableTrack = audioTracks.some(track => track.readyState === "live" && !track.muted);
-      if (hasUsableTrack) return;
-
-      const replacementStream = await requestMicrophone();
-      microphoneSource?.disconnect();
-      microphoneStream?.getTracks().forEach(track => track.stop());
-      microphoneStream = replacementStream;
-      microphoneSource = audioContext.createMediaStreamSource(microphoneStream);
-      microphoneSource.connect(gainNode);
     }
 
     function applyInputGain() {
@@ -1532,119 +1509,43 @@ SOFTWARE.</pre></details>
       });
     }
 
-    async function startOrToggleCapture(useDemo = false) {
-      if (startButton.disabled) return;
-      if (audioContext) {
-        try {
-          startButton.disabled = true;
-          if (running) {
-            capturedElapsedMs += performance.now() - captureStartedAt;
-            running = false;
-            setLiveState(false);
-            const pausedPeaks = stablePeakMarkers.length
-              ? stablePeakMarkers
-              : (spectrum ? findPeaks(spectrum) : []);
-            drawSpectrum(spectrum, pausedPeaks);
-          } else {
-            if (audioContext.state !== "running") await audioContext.resume();
-            await reconnectMicrophoneIfNeeded();
-            if (showAnalysis) {
-              analysisTransitionToken++;
-              showAnalysis = false;
-              spectrumTitle.textContent = "CURRENT SPECTRUM / 当前频谱";
-              spectrumNote.textContent = "黄线：当前 · 红线：峰值保持";
-              updateAnalyzeAvailability();
-            }
-            analysisComputeToken++;
-            running = true;
-            captureStartedAt = performance.now();
-            lastHistoryAt = 0;
-            lastSpectrumFrameAt = 0;
-            lastPeakAnalysisAt = 0;
-            statusLabel.style.display = "none";
-            setLiveState(true);
-          }
-        } catch (error) {
-          running = false;
-          setLiveState(false);
-          statusLabel.style.display = "grid";
-          statusLabel.innerHTML = `恢复麦克风失败：${error.message}<br><small>请检查浏览器麦克风权限后重试。</small>`;
-        } finally {
-          startButton.disabled = false;
-        }
-        return;
-      }
-
+    function freezeCapture() {
+      if (running) capturedElapsedMs += performance.now() - captureStartedAt;
+      running = false;
+      setLiveState(false);
+    }
+    async function releaseCapture() {
+      freezeCapture();
+      microphoneStream?.getTracks().forEach(track => track.stop());
+      microphoneSource?.disconnect(); gainNode?.disconnect();
+      microphoneStream = undefined; microphoneSource = undefined; gainNode = undefined;
+      if (audioContext && audioContext.state !== 'closed') await audioContext.close();
+      document.getElementById('sourceNotice').textContent = '麦克风已释放';
+    }
+    async function prepareCapture() {
       try {
-        startButton.disabled = true;
-        document.getElementById("demo").disabled = true;
-        statusLabel.style.display = "grid";
-        statusLabel.innerHTML = "正在请求麦克风权限…";
-
-        if (!useDemo && !navigator.mediaDevices?.getUserMedia) {
-          throw new Error("当前浏览器未开放麦克风接口，请使用 Chrome 或 Edge 打开此页面");
-        }
-
-        demoMode = useDemo;
-        if (!demoMode) microphoneStream = await requestMicrophone();
-
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器未开放麦克风接口');
+        microphoneStream = await requestMicrophone();
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         audioContext = new AudioContextClass();
         await audioContext.resume();
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = FFT_SIZE;
-        analyser.minDecibels = MIN_DB;
-        analyser.maxDecibels = MAX_DB;
-        analyser.smoothingTimeConstant = 0.05;
+        analyser = audioContext.createAnalyser(); analyser.fftSize = FFT_SIZE;
+        analyser.minDecibels = MIN_DB; analyser.maxDecibels = MAX_DB; analyser.smoothingTimeConstant = 0.05;
         gainNode = audioContext.createGain();
-        spectrum = new Float32Array(analyser.frequencyBinCount);
-        peakHold = new Float32Array(analyser.frequencyBinCount);
-        peakHold.fill(MIN_DB);
-        if (demoMode) {
-          for (const frequency of [100, 1000]) {
-            const oscillator = audioContext.createOscillator();
-            const level = audioContext.createGain();
-            oscillator.frequency.value = frequency; level.gain.value = 0.015;
-            oscillator.connect(level); level.connect(gainNode); oscillator.start();
-          }
-        } else {
-          microphoneSource = audioContext.createMediaStreamSource(microphoneStream);
-          microphoneSource.connect(gainNode);
-        }
-        document.getElementById("demo").disabled = true;
-        document.getElementById("sourceNotice").textContent = demoMode
-          ? "模拟信号 · 100 Hz + 1000 Hz · 不访问麦克风，不输出声音；刷新页面切换输入"
-          : "麦克风输入";
-        gainNode.connect(analyser);
-        applyInputGain();
-
-        running = true;
-        capturedElapsedMs = 0;
-        captureStartedAt = performance.now();
-        lastHistoryAt = 0;
-        lastUiAt = 0;
-        lastSpectrumFrameAt = 0;
-        lastPeakAnalysisAt = 0;
-        liveDisplayPeaks = [];
-        startButton.disabled = false;
-        statusLabel.style.display = "none";
-        setLiveState(true);
-        const binWidth = audioContext.sampleRate / analyser.fftSize;
-        resolutionLabel.textContent = `采样率 ${audioContext.sampleRate} Hz · FFT ${FFT_SIZE} · 分辨率 ${binWidth.toFixed(2)} Hz`;
-      } catch (error) {
-        microphoneStream?.getTracks().forEach(track => track.stop());
-        if (audioContext) await audioContext.close().catch(() => {});
-        audioContext = undefined; analyser = undefined; gainNode = undefined;
-        microphoneStream = undefined; microphoneSource = undefined;
-        running = false;
-        document.getElementById("demo").disabled = false;
-        startButton.disabled = false;
-        liveText.textContent = "NO INPUT";
-        const permissionHint = error.name === "NotAllowedError"
-          ? "麦克风权限被拒绝。请在浏览器地址栏的网站权限中允许麦克风。"
-          : error.message;
-        statusLabel.innerHTML = `${permissionHint}<br><small>ChatGPT 内置浏览器可能不支持麦克风，请改用外部浏览器。</small>`;
-      }
+        microphoneSource = audioContext.createMediaStreamSource(microphoneStream);
+        microphoneSource.connect(gainNode); gainNode.connect(analyser); applyInputGain();
+      } catch (error) { await releaseCapture(); throw error; }
+    }
+    function beginCapture() {
+      clearHistory();
+      spectrum = new Float32Array(analyser.frequencyBinCount).fill(MIN_DB);
+      peakHold = new Float32Array(analyser.frequencyBinCount).fill(MIN_DB);
+      capturedElapsedMs = 0; captureStartedAt = performance.now();
+      lastHistoryAt = 0; lastUiAt = 0; lastSpectrumFrameAt = 0; lastPeakAnalysisAt = 0; liveDisplayPeaks = [];
+      running = true; statusLabel.style.display = 'none'; setLiveState(true);
+      document.getElementById('sourceNotice').textContent = '麦克风输入';
+      resolutionLabel.textContent = '采样率 '+audioContext.sampleRate+' Hz · FFT '+FFT_SIZE+' · 分辨率 '+(audioContext.sampleRate/FFT_SIZE).toFixed(2)+' Hz';
+      applyAnalysisMode();
     }
 
     function getSpectrumPointerPosition(event) {
@@ -1849,13 +1750,14 @@ SOFTWARE.</pre></details>
       drawSharedAxis();
     }
 
-    startButton.addEventListener("click", () => startOrToggleCapture(false));
-    document.getElementById("demo").addEventListener("click", () => startOrToggleCapture(true));
+
+
     document.getElementById("displaySettings").addEventListener("submit", applyDisplaySettings);
     document.getElementById("resetHold").addEventListener("click", () => { if (peakHold) peakHold.fill(MIN_DB); redrawCurrentSpectrum(); });
     updateColorScale();
     analyzeButton.addEventListener("click", toggleHistoryAnalysis);
     function applyAnalysisMode() {
+      document.getElementById("modeCaption").textContent = ({mean:"平均功率",median:"中位数",maximum:"最大响声",noise:"噪声频谱",impact:"楼上噪声"}[analysisModeSelect.value] || "分析方式")+" ▾";
       currentAnalysisMode = analysisModeSelect.value;
       if (analysisModeSelect.value === "impact") {
         analysisComputeToken++; analysisTransitionToken++;
@@ -1905,16 +1807,9 @@ SOFTWARE.</pre></details>
     resizeCanvases();
     requestAnimationFrame(animate);
     window.NoiseInput = {
-      ensure: async () => {
-        if (demoMode) throw new Error("模拟来源不可录音，请刷新后启动麦克风");
-        if (!audioContext) await startOrToggleCapture(false);
-        if (!audioContext || !microphoneStream || !microphoneSource) throw new Error("麦克风初始化未成功");
-        await reconnectMicrophoneIfNeeded();
-        return {context:audioContext,stream:microphoneStream,source:microphoneSource,demo:demoMode};
-      },
-      frequencyX: frequencyToX,
-      latestHistory: () => historyFrames.at(-1),
-      setRecording: active => { document.getElementById("demo").disabled = active || !!audioContext; }
+      ensure: async () => { await prepareCapture(); return {context:audioContext,stream:microphoneStream,source:microphoneSource}; },
+      begin: beginCapture, freeze: freezeCapture, release: releaseCapture,
+      frequencyX: frequencyToX, latestHistory: () => historyFrames.at(-1)
     };
   </script>
   <script src="record-logging.js"></script>

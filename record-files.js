@@ -1,7 +1,7 @@
 /* MIT licensed; see LICENSE. Local persistence and portable exports; no network. */
 (function(root) {
   'use strict';
-  const VERSION='record-logging-unified.1';
+  const VERSION='record-logging-mobile.1';
   function openStore(indexedDB=root.indexedDB) {
     return new Promise((resolve,reject)=>{
       if(!indexedDB)return reject(Error('当前浏览器不支持本地 IndexedDB 存储'));

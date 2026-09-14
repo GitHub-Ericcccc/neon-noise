@@ -43,6 +43,8 @@ assert.equal(run('buildMaximumSpectrum(frames)[100]'),-40);
  sandbox.navigator.mediaDevices={getUserMedia:()=>new Promise(resolve=>lateResolve=resolve)};
  const request=run('requestMicrophone()'); const rejection=assert.rejects(request,/超时/);expire();await rejection;
  lateResolve({getTracks:()=>[{stop:()=>stopped=true}]});await Promise.resolve();await Promise.resolve();assert.equal(stopped,true);
+ run('var releaseOrder=[];audioContext={sampleRate:48000,state:"running",close:async function(){releaseOrder.push("close");this.state="closed";}};microphoneStream={getTracks:()=>[{stop:()=>releaseOrder.push("track")} ]};microphoneSource={disconnect(){}};gainNode={disconnect(){}};running=true;');
+ const frozenSpectrum=run('spectrum');run('freezeCapture()');assert.equal(run('running'),false);assert.equal(run('spectrum'),frozenSpectrum);await run('releaseCapture()');assert.equal(run('releaseOrder.join(",")'),'track,close');assert.equal(run('getSampleRate()'),48000);
  const license=fs.readFileSync(require('node:path').join(__dirname,'..','LICENSE'),'utf8').trim();assert.ok(html.includes(license));
  assert.ok(html.includes('Copyright (c) 2026 Arrow36'));
  console.log('PASS: syntax, coordinate roundtrip, dB mapping, peak decay/hold, four analysis modes, peak frequency, 30-second history pruning, raster cache invalidation, clear, microphone timeout/late stream release, independent color range, embedded MIT.');
