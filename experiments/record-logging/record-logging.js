@@ -31,16 +31,16 @@
     finally{resuming=false;$('recordResume').hidden=!(recording&&interrupted); }
   }
   async function start() {
-    if(acquisition||recording)return;
+    if(acquisition||recording||stopping)return;
     if(window.location?.protocol==='file:'){say('无法开始记录：直接打开 HTML（file://）无法加载 AudioWorklet。请运行 node scripts/serve.cjs 8765，然后访问 http://127.0.0.1:8765/；手机请使用 HTTPS 测试地址。');return;}
     if(session?.persistenceError&&!session.exportConfirmed){say('上次会话未完整写入，请先导出并确认保存，避免覆盖内存中的录音。');return;}
-    acquisition=true;lock(true);say('准备记录…');
+    acquisition=true;lock(true);ui.stop.disabled=true;recorder=null;say('准备记录…');
     try {
       const s=settings(),encoding=F.chooseMime(window.MediaRecorder);
       store=store||await F.openStore();input=await window.NoiseInput.ensure();
-      if(input.demo)throw Error('模拟信号不能作为录音来源，请刷新后使用麦克风');
+
       if(!input.context.audioWorklet||!window.AudioWorkletNode)throw Error('Safari 未开放 AudioWorklet，请升级系统并使用 HTTPS 地址');
-      if(!workletLoaded){await input.context.audioWorklet.addModule('./impact-worklet.js');workletLoaded=true;}
+      if(workletLoaded!==input.context){await input.context.audioWorklet.addModule('./impact-worklet.js');workletLoaded=input.context;}
       await input.context.resume();
       clock=performance.now();origin=input.context.currentTime*1000;detector=new C.Detector(s);chunks=[];bytes=0;saveQueue=Promise.resolve();interrupted=false;stopping=false;lastFrameAt=clock;
       session={id:new Date().toISOString().replace(/[:.]/g,'-')+'-'+crypto.randomUUID().slice(0,8),startedAt:new Date().toISOString(),endedAt:null,elapsedMs:0,stopReason:null,settings:s,events:[],trace:[],interruptions:[],segments:[{segment:detector.segment,startMs:0,endMs:null}],exportConfirmed:false,audioMime:encoding.mime,audioExtension:encoding.extension,metadata:{version:F.VERSION,sampleRate:input.context.sampleRate,userAgent:navigator.userAgent,trackSettings:input.stream.getAudioTracks()[0].getSettings(),inputGainAppliedToDetector:false,filter:'second-order Butterworth high-pass then low-pass; band RMS and sample peak',eventRms:'mean power of overlapping window frames'},timeBasis:{wallClock:'Device Date; not trusted timestamp',eventClock:'performance.now elapsed from MediaRecorder start event; includes interruption gaps',audioSeek:'Estimated relative seconds; after interruptions media timestamps may differ. Verify full recording manually.'}};
@@ -66,26 +66,27 @@
         if(lastFrameAt-paintAt>=200){paintAt=lastFrameAt;render();say(result.learning?'学习背景中 · '+duration():'记录中 · '+duration());}
         if(lastFrameAt-saveAt>=1000){saveAt=lastFrameAt;void save();}
       };
-      recording=true;liveSession=true;window.NoiseInput.setRecording(true);lock(true);ui.stop.disabled=false;
+      recording=true;liveSession=true;window.NoiseInput.begin();lock(true);ui.stop.disabled=false;
       for(const track of input.stream.getAudioTracks())track.addEventListener('ended',onTrackEnd);
       input.context.addEventListener('statechange',onState);
       heartbeat=setInterval(()=>{if(elapsed()>=s.maxMs)void stop('达到10分钟上限');else if(!interrupted&&performance.now()-lastFrameAt>3000)interrupt('短时检测通道超过3秒无数据');},500);
       timer=setTimeout(()=>void stop('达到10分钟上限'),s.maxMs);void save();render();say('学习背景中');
       if(document.hidden)interrupt('页面处于后台');
-    } catch(error) {if(recorder&&recorder.state!=='inactive'){recording=true;await stop('启动失败：'+error.message);}else{cleanup();lock(false);say('无法开始记录：'+error.message);}}
+    } catch(error) {if(recorder&&recorder.state!=='inactive'){recording=true;await stop('启动失败：'+error.message);}else{cleanup();await window.NoiseInput.release();lock(false);say('无法开始记录：'+error.message);}}
     finally{acquisition=false;}
   }
   function onTrackEnd(){void stop('麦克风音轨结束');}
   function onState(){if(!recording)return;if(input.context.state==='closed')void stop('音频上下文关闭');else if(input.context.state!=='running')interrupt('音频上下文 '+input.context.state);else if(interrupted&&!document.hidden)void resume();}
-  function cleanup(){clearTimeout(timer);clearInterval(heartbeat);try{input?.source.disconnect(node);}catch{}node?.disconnect();sink?.disconnect();if(node){node.port.onmessage=null;node.port.close();}node=null;sink=null;input?.context.removeEventListener('statechange',onState);for(const t of input?.stream.getAudioTracks()||[])t.removeEventListener('ended',onTrackEnd);window.NoiseInput.setRecording(false);}
-  async function stop(reason='用户结束记录') {
-    if(!recording||stopping)return;stopping=true;recording=false;const t=elapsed();session.elapsedMs=t;sealSegment(t);eventPush(detector.finish());session.endedAt=new Date().toISOString();session.stopReason=reason;cleanup();say('正在保存最后的音频分块…');
+  function cleanup(){clearTimeout(timer);clearInterval(heartbeat);try{input?.source.disconnect(node);}catch{}node?.disconnect();sink?.disconnect();if(node){node.port.onmessage=null;node.port.close();}node=null;sink=null;input?.context.removeEventListener('statechange',onState);for(const t of input?.stream.getAudioTracks()||[])t.removeEventListener('ended',onTrackEnd);window.NoiseInput.freeze();}
+  async function stop(reason='用户停止记录') {
+    if(!recording||stopping)return;stopping=true;recording=false;const t=elapsed();session.elapsedMs=t;sealSegment(t);eventPush(detector.finish());session.endedAt=new Date().toISOString();session.stopReason=reason;cleanup();ui.stop.disabled=true;say('正在保存…');
     try {
       if(recorder.state!=='inactive')await new Promise(resolve=>{recorder.addEventListener('stop',resolve,{once:true});recorder.stop();});
+      await window.NoiseInput.release();
       await saveQueue;try{await store.save(snapshot());}catch(error){session.persistenceError=error.message;}
-      const audio=new Blob(chunks,{type:session.audioMime});setAudio(audio);lock(false);render();await refreshSaved();say('已结束：'+reason);
+      const audio=new Blob(chunks,{type:session.audioMime});setAudio(audio);lock(false);render();await refreshSaved();say(reason==='用户停止记录'?'已停止':'已停止：'+reason);
     } catch(error){lock(false);render();say('保存结束时出现错误，已收到的音频仍可尝试导出：'+error.message);}
-    finally{stopping=false;}
+    finally{await window.NoiseInput.release();stopping=false;}
   }
   function setAudio(blob){if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(blob);ui.audio.src=url;ui.audio.hidden=false;}
   async function loadSaved(id) {
