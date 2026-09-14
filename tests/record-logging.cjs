@@ -63,7 +63,7 @@ async function controllerHarness() {
  function energy(to,level=-80){for(now+=20;now<=to;now+=20){context.currentTime=now/1000;node.port.onmessage({data:frame(now,level)});}now=to;}
  energy(6000);energy(6080,-50);energy(6800);assert.match(get('recordMetrics').textContent,/候选 1 次/);
  // Switching the original analysis selector does not stop acquisition.
- get('analysisMode').value='maximum';get('analysisMode').onchange();assert.equal(sandbox.ImpactLogging.isRecording(),true);assert.equal(recorder.state,'recording');
+ for(const mode of ['mean','median','maximum','noise','impact']){get('analysisMode').value=mode;get('analysisMode').onchange();assert.notEqual(get('impactPanel').hidden,true);assert.equal(sandbox.ImpactLogging.isRecording(),true);assert.equal(recorder.state,'recording');assert.equal(get('recordStop').disabled,false);}
  document.hidden=true;listeners.get('visibilitychange')();const before=get('eventRows').childElementCount;energy(7500,-45);assert.equal(get('eventRows').childElementCount,before);
  document.hidden=false;listeners.get('visibilitychange')();await new Promise(resolve=>setImmediate(resolve));energy(13000);energy(13080,-50);energy(13800);assert.match(get('recordMetrics').textContent,/候选 2 次/);assert.match(get('recordMetrics').textContent,/疑似步频 —/);
  // Fail the real chunk persistence callback, preserve in-memory audio and stop.
@@ -75,6 +75,9 @@ async function controllerHarness() {
 }
 
 (async()=>{
+ const page=fs.readFileSync(path.join(root,'index.html'),'utf8');
+ assert.match(page,/value="impact" selected>楼上噪声优化检测/);assert.ok(!page.includes('使用独立记录按钮'));assert.ok(!page.includes('法律证据资格'));assert.ok(!page.includes('id="impactPanel" hidden'));
+ assert.ok(page.indexOf('id="recordStart"')<page.indexOf('id="spectrum"'));assert.ok(page.indexOf('id="waterfall"')<page.indexOf('id="energyTrace"'));assert.ok(page.indexOf('id="energyTrace"')<page.indexOf('id="eventRows"'));assert.ok(page.indexOf('id="eventRows"')<page.indexOf('id="recordExport"'));
  assert.equal(files.chooseMime({isTypeSupported:m=>m==='audio/mp4'}).extension,'m4a');assert.throws(()=>files.chooseMime(null));
  assert.equal(files.crc32(new TextEncoder().encode('123456789')),0xcbf43926);
  const s={id:'synthetic-test',startedAt:'2026-09-14T00:00:00Z',endedAt:'2026-09-14T00:00:10Z',elapsedMs:10000,settings:core.DEFAULTS,events:repeated.events,segments:[],interruptions:[],metadata:{version:files.VERSION},audioExtension:'m4a',stopReason:'test',timeBasis:{}};
@@ -82,7 +85,7 @@ async function controllerHarness() {
  const license=fs.readFileSync(path.join(root,'LICENSE'),'utf8').replaceAll('\r\n','\n').trim();
  const out=await files.buildExport(s,new Blob(['synthetic audio']),license,core);assert.equal(out.manifest.length,5);assert.equal(out.manifest[0].sha256,await files.hash(new TextEncoder().encode('synthetic audio')));
  const bytes=new Uint8Array(await out.blob.arrayBuffer()),view=new DataView(bytes.buffer);let offset=0,names=[];
- while(view.getUint32(offset,true)===0x04034b50){const len=view.getUint32(offset+18,true),nameLen=view.getUint16(offset+26,true),extra=view.getUint16(offset+28,true);const name=new TextDecoder().decode(bytes.slice(offset+30,offset+30+nameLen));const start=offset+30+nameLen+extra,data=bytes.slice(start,start+len);assert.equal(files.crc32(data),view.getUint32(offset+14,true));names.push(name);if(name==='report.html'){const report=new TextDecoder().decode(data);assert.ok(report.includes('Copyright (c) 2026 Arrow36'));assert.ok(report.includes('不是经校准'));}offset=start+len;}
+ while(view.getUint32(offset,true)===0x04034b50){const len=view.getUint32(offset+18,true),nameLen=view.getUint16(offset+26,true),extra=view.getUint16(offset+28,true);const name=new TextDecoder().decode(bytes.slice(offset+30,offset+30+nameLen));const start=offset+30+nameLen+extra,data=bytes.slice(start,start+len);assert.equal(files.crc32(data),view.getUint32(offset+14,true));names.push(name);if(name==='report.html'){const report=new TextDecoder().decode(data);assert.ok(report.includes('Copyright (c) 2026 Arrow36'));assert.ok(!report.includes('法律证据'));assert.ok(!report.includes('不是经校准'));assert.ok(report.includes('设置与采集元数据'));}offset=start+len;}
  assert.deepEqual(names,['recording.m4a','events.csv','session.json','report.html','LICENSE','manifest.json']);assert.equal(view.getUint32(offset,true),0x02014b50);
  await assert.rejects(new files.Store({transaction(){const tx={objectStore:()=>({put(){queueMicrotask(()=>{tx.error=Error('quota');tx.onabort();});}})};return tx;}}).chunk('id',0,new Blob(['x'])),/quota/);
  await assert.rejects(new files.Store({}).remove({exportConfirmed:false}),/确认/);

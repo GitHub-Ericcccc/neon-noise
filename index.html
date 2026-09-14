@@ -76,14 +76,14 @@ SOFTWARE.
     #displayError { color:#ff9d9d; } .color-scale { display:flex; gap:8px; align-items:center; padding:6px 10px; color:#a2b0c5; font:10px Consolas,monospace; background:#101a2b; }
     #colorRamp { flex:1; height:8px; } .color-scale span { white-space:nowrap; }
     #sourceNotice { color:#dceba3; } .license-text { white-space:pre-wrap; font-size:11px; color:var(--muted); }
-    #impactPanel { margin:12px 0; padding:12px; background:#101a2b; border:1px solid #35455e; border-radius:6px; }
+    #impactPanel { margin:12px 0; }
     #impactPanel h2 { margin:0; font-size:16px; } #impactPanel p { overflow-wrap:anywhere; }
     #recordMetrics { padding:10px 0; line-height:1.9; color:#f2d85b; }
     #recordAudio { width:100%; margin:8px 0; } #energyTrace { height:160px; }
     .event-scroll { overflow:auto; max-height:320px; } #impactPanel table { border-collapse:collapse; font-size:12px; width:100%; white-space:nowrap; }
     #impactPanel td,#impactPanel th { padding:6px; border-bottom:1px solid #35455e; text-align:left; }
     .impact-overlay { position:absolute; inset:0; height:100%; pointer-events:none; }
-    #detectSettings input { width:100px; } #recordStatus { min-height:40px; }
+    #detectSettings input { width:100px; } #recordStatus { margin:8px 0; }
     @media(max-width:760px) { .shell { padding:8px; } .metrics { gap:12px; } .metric { display:block; } .metric-label { font-size:9px; } .metric-value { font-size:16px; } .controls { gap:6px; } button,select { min-height:42px; } .analysis-mode-control { flex:1 1 100%; } .analysis-mode-control select { flex:1; min-width:0; } #spectrum { height:300px; } #waterfall { height:390px; } h1 { font-size:20px; } .panel-head-tools { flex-wrap:wrap; } .subtitle { font-size:11px; } }
   </style>
 </head>
@@ -103,6 +103,9 @@ SOFTWARE.
         <button class="primary" id="start">启动麦克风</button>
         <button id="demo" type="button">模拟信号</button>
         <button class="analysis-button" id="analyze" type="button" disabled>分析历史频谱</button>
+        <button id="recordStart" class="primary" type="button">开始记录</button>
+        <button id="recordStop" type="button" disabled>结束记录</button>
+        <button id="recordResume" type="button" hidden>恢复记录</button>
         <button class="ghost" id="clear" type="button">清空历史</button>
         <label class="analysis-mode-control">
           <span>分析方式</span>
@@ -111,7 +114,7 @@ SOFTWARE.
             <option value="median">中位数频谱（稳定底噪）</option>
             <option value="maximum">最大响声频谱（短促异响）</option>
             <option value="noise">噪声频谱（噪声突出度＋出现率）</option>
-            <option value="impact">楼上噪声优化检测（实验）</option>
+            <option value="impact" selected>楼上噪声优化检测</option>
           </select>
         </label>
         <label class="gain-control">
@@ -131,8 +134,9 @@ SOFTWARE.
           <span id="displayError" role="status"></span>
         </form>
       </details>
-      <div class="resolution" id="sourceNotice">尚未启动 · 模拟信号不访问麦克风</div>
+      <div class="resolution" id="sourceNotice">尚未启动</div>
       <div class="resolution" id="resolution">FFT 32768 · 等待音频输入</div>
+      <details><summary>检测参数 · 单次最长10分钟</summary><div id="detectSettings" class="settings-grid"></div></details>
     </section>
 
     <section class="metrics">
@@ -146,26 +150,8 @@ SOFTWARE.
       </article>
     </section>
 
-    <section id="impactPanel" hidden>
-      <h2>楼上噪声优化检测 · 实验初版</h2>
-      <p>记录疑似低频撞击，不自动判定声源。候选次数不等于确认脚步数；相对电平 dBFS 不等于经校准的声压级。高灵敏规则可能误报，也可能漏检。</p>
-      <div class="controls">
-        <button id="recordStart" class="primary" type="button">开始记录（最长10分钟）</button>
-        <button id="recordStop" type="button" disabled>结束记录</button>
-        <button id="recordResume" type="button">恢复记录</button>
-        <button id="recordExport" type="button" disabled>准备导出 ZIP</button>
-        <a id="recordDownload" hidden>下载 ZIP</a>
-      </div>
-      <p id="recordStatus" role="status" aria-live="polite">仅本机保存完整音频与日志。请保持 Safari 前台，不承诺锁屏连续记录。</p>
-      <details><summary>实验检测参数 · 会话开始后锁定</summary><div id="detectSettings" class="settings-grid"></div></details>
-      <p>切换分析或“暂停显示”不停止录音；须点击“结束记录”。后台／音频中断不有效计数，恢复后重新学习背景。中断后的音频定位仅供估计，需人工核对。</p>
-      <div id="recordMetrics"></div><canvas id="energyTrace" aria-label="最近30秒低频能量曲线"></canvas>
-      <audio id="recordAudio" controls preload="metadata"></audio>
-      <div class="event-scroll"><table><thead><tr><th>ID</th><th>类型</th><th>开始秒</th><th>持续秒</th><th>滤波峰值dBFS</th><th>滤波RMS dBFS</th><th>增量dB</th><th>回听</th></tr></thead><tbody id="eventRows"></tbody></table></div>
-      <p>恢复本地会话：<select id="recordSaved" aria-label="本地已保存会话"><option value="">选择会话</option></select></p>
-      <div class="controls"><button id="recordConfirm" type="button" disabled>我已打开并核对导出的文件</button><button id="recordDelete" type="button" disabled>删除本地会话</button></div>
-      <p class="footer-note">导出包含完整音频、CSV、JSON、HTML报告、MIT与SHA-256清单。哈希用于核对文件完整性，不证明声源、可信时间或法律证据资格。未导出会话不会自动清除。</p>
-    </section>
+    <p id="recordStatus" role="status" aria-live="polite">未开始</p>
+    <div id="recordMetrics"></div>
 
     <section class="panel spectrum-stack">
       <div class="panel-head">
@@ -185,7 +171,7 @@ SOFTWARE.
           <span>Hz</span>
           <button type="submit">定位</button>
         </form>
-        <div class="status" id="status">启动麦克风后开始采集<br>实时采集请使用 Chrome / Edge 等外部浏览器</div>
+        <div class="status" id="status">启动麦克风或开始记录</div>
       </div>
       <div class="shared-axis-wrap">
         <svg id="sharedAxis" preserveAspectRatio="none" role="img" aria-label="两张频谱图共用的频率横坐标"></svg>
@@ -202,8 +188,15 @@ SOFTWARE.
     </section>
 
     <div class="color-scale"><span id="colorLow">−110</span><div id="colorRamp"></div><span id="colorHigh">−30 dBFS</span><span>颜色饱和于两端</span></div>
-    <p class="footer-note">暂停仅冻结图表与历史，麦克风仍可能占用；关闭页面释放。历史按累计采集时间计时。</p>
-    <p class="footer-note">dBFS 是数字相对电平，未经校准不等于声压级 dB SPL。</p>
+    <section id="impactPanel">
+      <canvas id="energyTrace" aria-label="最近30秒低频能量曲线"></canvas>
+      <div class="event-scroll"><table><thead><tr><th>ID</th><th>类型</th><th>开始秒</th><th>持续秒</th><th>滤波峰值dBFS</th><th>滤波RMS dBFS</th><th>增量dB</th><th>回听</th></tr></thead><tbody id="eventRows"></tbody></table></div>
+      <audio id="recordAudio" controls preload="metadata" hidden></audio>
+      <details><summary>会话与导出</summary>
+        <p>本地会话：<select id="recordSaved" aria-label="本地已保存会话"><option value="">选择会话</option></select></p>
+        <div class="controls"><button id="recordExport" type="button" disabled>导出 ZIP</button><a id="recordDownload" hidden>下载 ZIP</a><button id="recordConfirm" type="button" disabled>确认已保存</button><button id="recordDelete" type="button" disabled>删除本地会话</button></div>
+      </details>
+    </section>
     <p class="footer-note">派生自 <a href="https://github.com/Arrow36/neon-noise">Arrow36/neon-noise</a> · <a href="https://github.com/GitHub-Ericcccc/neon-noise">独立维护版本</a> · 视觉参考 Spectroid，非官方版本</p>
     <details><summary>MIT 许可证</summary><pre class="license-text">MIT License
 
@@ -294,7 +287,7 @@ SOFTWARE.</pre></details>
     let peakHold;
     let analysisSpectrum;
     let analysisPeaks = [];
-    let currentAnalysisMode = "mean";
+    let currentAnalysisMode = "impact";
     let analysisTransitionToken = 0;
     let analysisComputeToken = 0;
     let historyFrames = [];
@@ -1319,9 +1312,9 @@ SOFTWARE.</pre></details>
     }
 
     function updateAnalyzeAvailability() {
+      analyzeButton.hidden = analysisModeSelect.value === "impact";
       if (analysisModeSelect.value === "impact") {
         analyzeButton.disabled = true;
-        analyzeButton.textContent = "使用独立记录按钮";
         return;
       }
       if (showAnalysis) {
@@ -1621,7 +1614,7 @@ SOFTWARE.</pre></details>
         document.getElementById("demo").disabled = true;
         document.getElementById("sourceNotice").textContent = demoMode
           ? "模拟信号 · 100 Hz + 1000 Hz · 不访问麦克风，不输出声音；刷新页面切换输入"
-          : "麦克风输入 · 暂停只冻结显示；关闭页面释放麦克风";
+          : "麦克风输入";
         gainNode.connect(analyser);
         applyInputGain();
 
@@ -1862,7 +1855,8 @@ SOFTWARE.</pre></details>
     document.getElementById("resetHold").addEventListener("click", () => { if (peakHold) peakHold.fill(MIN_DB); redrawCurrentSpectrum(); });
     updateColorScale();
     analyzeButton.addEventListener("click", toggleHistoryAnalysis);
-    analysisModeSelect.addEventListener("change", () => {
+    function applyAnalysisMode() {
+      currentAnalysisMode = analysisModeSelect.value;
       if (analysisModeSelect.value === "impact") {
         analysisComputeToken++; analysisTransitionToken++;
         showAnalysis = false;
@@ -1872,8 +1866,10 @@ SOFTWARE.</pre></details>
       }
       currentAnalysisMode = analysisModeSelect.value;
       if (showAnalysis) calculateSelectedAnalysis();
-      else updateAnalyzeAvailability();
-    });
+      else { spectrumNote.textContent = "黄线：当前 · 红线：峰值保持"; updateAnalyzeAvailability(); }
+    }
+    analysisModeSelect.addEventListener("change", applyAnalysisMode);
+    applyAnalysisMode();
     clearButton.addEventListener("click", clearHistory);
     resetMarkerButton.addEventListener("click", resetCustomMarker);
     markerEditor.addEventListener("submit", event => {
