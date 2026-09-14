@@ -4,11 +4,19 @@
   const C=window.ImpactCore,F=window.RecordFiles,$=id=>document.getElementById(id);
   const ui={panel:$('impactPanel'),status:$('recordStatus'),start:$('recordStart'),stop:$('recordStop'),export:$('recordExport'),confirm:$('recordConfirm'),remove:$('recordDelete'),saved:$('recordSaved'),audio:$('recordAudio'),rows:$('eventRows'),metrics:$('recordMetrics'),canvas:$('energyTrace')};
   let store,session,detector,node,sink,recorder,input,origin=0,clock=0,timer,heartbeat,saveQueue=Promise.resolve(),chunks=[],bytes=0,stopping=false,exportReady=false,url,downloadUrl;
-  let acquisition=false,recording=false,interrupted=false,resuming=false,lastFrameAt=0,paintAt=0,saveAt=0,workletLoaded=false,liveSession=false;
+  let learning=false,acquisition=false,recording=false,interrupted=false,resuming=false,lastFrameAt=0,paintAt=0,saveAt=0,workletLoaded=false,liveSession=false;
   const fields=Object.keys(C.DEFAULTS);
   const labels={mainLow:'主频带下限Hz',mainHigh:'主频带上限Hz',auxLow:'辅助下限Hz',auxHigh:'辅助上限Hz',focusLow:'重点下限Hz',focusHigh:'重点上限Hz',windowMs:'能量窗口ms',hopMs:'更新间隔ms',warmupMs:'背景学习ms',backgroundMs:'背景窗口ms',triggerDb:'触发增量dB',riseDb:'上升门槛dB',endDb:'结束增量dB',endHoldMs:'结束保持ms',mergeMs:'振铃合并ms',sustainedMs:'持续增强ms',maxMs:'会话上限ms（固定）'};
   for(const key of fields){const label=document.createElement('label'),field=document.createElement('input');label.textContent=labels[key];field.type='number';field.step='any';field.id='detect-'+key;field.value=C.DEFAULTS[key];if(key==='maxMs')field.readOnly=true;label.append(field);$('detectSettings').append(label);}
-  function say(text){ui.status.textContent=text; $('recordResume').hidden=!(recording&&interrupted&&!resuming);}
+  function updateLifecycle() {
+    const state=recording?(interrupted?['已中断','INTERRUPTED']:learning?['学习中','LEARNING']:['记录中','RECORDING']):stopping?['已停止','STOPPED']:acquisition?['准备中','PREPARING']:session?.endedAt?['已停止','STOPPED']:['未开始','READY'];
+    $('recordPhase').textContent=state[0];$('recordPhaseEn').textContent=state[1];
+    const ms=recording?elapsed():acquisition?0:session?.elapsedMs||0;const seconds=Math.floor(ms/1000);
+    $('recordTime').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+    $('recordResume').hidden=!(recording&&interrupted&&!resuming);
+  }
+  function say(text){ui.status.textContent=text;ui.status.hidden=!text||/^(准备记录…|学习背景中|记录中 ·|正在保存…|已停止$)/.test(text);updateLifecycle();}
+  function sessionSay(text){$('sessionNotice').textContent=text;$('sessionNotice').hidden=!text;updateLifecycle();}
   function duration(){const seconds=Math.floor(elapsed()/1000);return String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');}
   function lock(on){for(const key of fields)$('detect-'+key).disabled=on;ui.start.disabled=on;ui.stop.disabled=!on;ui.export.disabled=on||!session;ui.saved.disabled=on;ui.confirm.disabled=true;ui.remove.disabled=true;exportReady=false;}
   function settings(){return C.validateSettings(Object.fromEntries(fields.map(key=>[key,Number($('detect-'+key).value)])));}
@@ -26,7 +34,7 @@
   async function resume() {
     if(!recording||!interrupted||document.hidden||resuming)return;
     resuming=true;
-    try{await input.context.resume();if(input.context.state!=='running')throw Error('音频上下文未恢复');const t=elapsed();origin=input.context.currentTime*1000-t;detector.reset(t);session.segments.push({segment:detector.segment,startMs:t,endMs:null});session.interruptions.push({type:'resume',timeMs:t,reason:'前台恢复；重新学习背景'});node.port.postMessage({type:'reset'});node.port.postMessage({type:'enabled',enabled:true});interrupted=false;lastFrameAt=performance.now();say('学习背景中');void save();}
+    try{await input.context.resume();if(input.context.state!=='running')throw Error('音频上下文未恢复');const t=elapsed();origin=input.context.currentTime*1000-t;detector.reset(t);session.segments.push({segment:detector.segment,startMs:t,endMs:null});session.interruptions.push({type:'resume',timeMs:t,reason:'前台恢复；重新学习背景'});node.port.postMessage({type:'reset'});node.port.postMessage({type:'enabled',enabled:true});interrupted=false;learning=true;lastFrameAt=performance.now();say('学习背景中');void save();}
     catch(error){say('无法自动恢复，点击“恢复记录”重试：'+error.message);}
     finally{resuming=false;$('recordResume').hidden=!(recording&&interrupted); }
   }
@@ -34,7 +42,7 @@
     if(acquisition||recording||stopping)return;
     if(window.location?.protocol==='file:'){say('无法开始记录：直接打开 HTML（file://）无法加载 AudioWorklet。请运行 node scripts/serve.cjs 8765，然后访问 http://127.0.0.1:8765/；手机请使用 HTTPS 测试地址。');return;}
     if(session?.persistenceError&&!session.exportConfirmed){say('上次会话未完整写入，请先导出并确认保存，避免覆盖内存中的录音。');return;}
-    acquisition=true;lock(true);ui.stop.disabled=true;recorder=null;say('准备记录…');
+    acquisition=true;learning=true;lock(true);sessionSay('');ui.stop.disabled=true;recorder=null;say('准备记录…');
     try {
       const s=settings(),encoding=F.chooseMime(window.MediaRecorder);
       store=store||await F.openStore();input=await window.NoiseInput.ensure();
@@ -61,7 +69,7 @@
         if(elapsed()>=s.maxMs){void stop('达到10分钟上限');return;}
         lastFrameAt=performance.now();const f={...data,timeMs:data.timeMs-origin};
         if(f.timeMs<0||f.timeMs<detector.lastTime)return;
-        const result=detector.push(f);eventPush(result.event);
+        const result=detector.push(f);learning=result.learning;eventPush(result.event);
         session.trace.push({...f,backgroundDb:result.backgroundDb,incrementDb:result.incrementDb,learning:result.learning,segment:detector.segment});session.elapsedMs=elapsed();
         if(lastFrameAt-paintAt>=200){paintAt=lastFrameAt;render();say(result.learning?'学习背景中 · '+duration():'记录中 · '+duration());}
         if(lastFrameAt-saveAt>=1000){saveAt=lastFrameAt;void save();}
@@ -73,7 +81,7 @@
       timer=setTimeout(()=>void stop('达到10分钟上限'),s.maxMs);void save();render();say('学习背景中');
       if(document.hidden)interrupt('页面处于后台');
     } catch(error) {if(recorder&&recorder.state!=='inactive'){recording=true;await stop('启动失败：'+error.message);}else{cleanup();await window.NoiseInput.release();lock(false);say('无法开始记录：'+error.message);}}
-    finally{acquisition=false;}
+    finally{acquisition=false;updateLifecycle();}
   }
   function onTrackEnd(){void stop('麦克风音轨结束');}
   function onState(){if(!recording)return;if(input.context.state==='closed')void stop('音频上下文关闭');else if(input.context.state!=='running')interrupt('音频上下文 '+input.context.state);else if(interrupted&&!document.hidden)void resume();}
@@ -86,23 +94,24 @@
       await saveQueue;try{await store.save(snapshot());}catch(error){session.persistenceError=error.message;}
       const audio=new Blob(chunks,{type:session.audioMime});setAudio(audio);lock(false);render();await refreshSaved();say(reason==='用户停止记录'?'已停止':'已停止：'+reason);
     } catch(error){lock(false);render();say('保存结束时出现错误，已收到的音频仍可尝试导出：'+error.message);}
-    finally{await window.NoiseInput.release();stopping=false;}
+    finally{await window.NoiseInput.release();stopping=false;updateLifecycle();}
   }
   function setAudio(blob){if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(blob);ui.audio.src=url;ui.audio.hidden=false;}
   async function loadSaved(id) {
     if(!id||recording)return;
-    if(session?.persistenceError&&!session.exportConfirmed){say('请先导出并确认当前内存中的录音，再切换会话。');return;}
+    if(session?.persistenceError&&!session.exportConfirmed){sessionSay('请先导出并确认当前内存中的录音，再切换会话。');return;}
     liveSession=false;
-    try{const records=await store.list();session=records.find(x=>x.id===id);if(!session)throw Error('会话不存在');chunks=await store.chunks(id);if(!session.endedAt){session.stopReason='页面曾关闭或崩溃；恢复已保存数据';session.endedAt=new Date().toISOString();sealSegment(session.elapsedMs);session.interruptions.push({type:'unclosed-session',timeMs:session.elapsedMs,reason:session.stopReason});await store.save(snapshot());}setAudio(new Blob(chunks,{type:session.audioMime}));lock(false);render();say('已恢复本地会话');}catch(e){say('恢复失败：'+e.message);}
+    try{const records=await store.list();session=records.find(x=>x.id===id);if(!session)throw Error('会话不存在');chunks=await store.chunks(id);if(!session.endedAt){session.stopReason='页面曾关闭或崩溃；恢复已保存数据';session.endedAt=new Date().toISOString();sealSegment(session.elapsedMs);session.interruptions.push({type:'unclosed-session',timeMs:session.elapsedMs,reason:session.stopReason});await store.save(snapshot());}setAudio(new Blob(chunks,{type:session.audioMime}));lock(false);render();sessionSay('已恢复本地会话');}catch(e){sessionSay('恢复失败：'+e.message);}
   }
   async function exportSession() {
     if(recording||!session)return;
-    ui.export.disabled=true;say('正在生成 ZIP…');
-    try{const license=document.querySelector('.license-text').textContent.trim();const result=await F.buildExport(snapshot(),new Blob(chunks,{type:session.audioMime}),license);if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(result.blob);const link=$('recordDownload');link.href=downloadUrl;link.download=result.filename;link.hidden=false;link.textContent='下载 ZIP（'+(result.blob.size/1048576).toFixed(1)+' MiB）';exportReady=true;ui.confirm.disabled=false;say('ZIP 已就绪');}catch(error){say('导出失败：'+error.message);}finally{ui.export.disabled=false;}
+    ui.export.disabled=true;sessionSay('正在生成 ZIP…');
+    try{const license=document.querySelector('.license-text').textContent.trim();const result=await F.buildExport(snapshot(),new Blob(chunks,{type:session.audioMime}),license);if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(result.blob);const link=$('recordDownload');link.href=downloadUrl;link.download=result.filename;link.hidden=false;link.textContent='下载 ZIP（'+(result.blob.size/1048576).toFixed(1)+' MiB）';exportReady=true;ui.confirm.disabled=false;sessionSay('ZIP 已就绪');}catch(error){sessionSay('导出失败：'+error.message);}finally{ui.export.disabled=false;}
   }
-  async function confirmExport(){if(!exportReady||!session)return;session.exportConfirmed=true;try{await store.save(snapshot());ui.remove.disabled=false;say('已确认保存');}catch(e){session.exportConfirmed=false;say('确认状态保存失败：'+e.message);}}
-  async function removeSession(){if(!session?.exportConfirmed||!confirm('仅删除本机此会话及录音，导出的ZIP不受影响。确认删除？'))return;try{await store.remove(session);session=null;chunks=[];if(url)URL.revokeObjectURL(url);ui.audio.removeAttribute('src');lock(false);render();await refreshSaved();say('本地会话已删除，导出文件保留。');}catch(e){say('删除失败：'+e.message);}}
+  async function confirmExport(){if(!exportReady||!session)return;session.exportConfirmed=true;try{await store.save(snapshot());ui.remove.disabled=false;sessionSay('已确认保存');}catch(e){session.exportConfirmed=false;sessionSay('确认状态保存失败：'+e.message);}}
+  async function removeSession(){if(!session?.exportConfirmed||!confirm('仅删除本机此会话及录音，导出的ZIP不受影响。确认删除？'))return;try{await store.remove(session);session=null;chunks=[];if(url)URL.revokeObjectURL(url);ui.audio.removeAttribute('src');lock(false);render();await refreshSaved();sessionSay('本地会话已删除，导出文件保留。');}catch(e){sessionSay('删除失败：'+e.message);}}
   function render() {
+    updateLifecycle();
     const s=session?C.summarize(session.events,session.elapsedMs,session.segments):null;
     ui.metrics.textContent=s?`候选 ${s.candidateCount} 次 · 持续增强 ${s.sustainedCount} 次 · 最近滤波峰值 ${s.lastEvent?.peakDbfs.toFixed(1)??'—'} dBFS · 背景增量 ${s.lastEvent?.incrementDb.toFixed(1)??'—'} dB · 间隔 ${s.lastIntervalSeconds?.toFixed(2)??'—'} 秒 · 最近60秒 ${s.recentCount} 次（有效观察 ${s.observedSeconds.toFixed(1)} 秒） · 疑似步频 ${s.sequences.at(-1)?.cadencePerMinute.toFixed(1)??'—'} 次/分 · 会话 ${(session.elapsedMs/1000).toFixed(1)} 秒`:'尚无会话';
     if(ui.rows.dataset.session!==(session?.id||'')||ui.rows.childElementCount!==(session?.events.length||0)) {

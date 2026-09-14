@@ -85,7 +85,7 @@ SOFTWARE.
     .impact-overlay { position:absolute; inset:0; height:100%; pointer-events:none; }
     #detectSettings input { width:100px; } #recordStatus { margin:8px 0; }
     @media(max-width:760px) { .shell { padding:8px; } .metrics { gap:12px; } .metric { display:block; } .metric-label { font-size:9px; } .metric-value { font-size:16px; } .controls { gap:6px; } button,select { min-height:42px; } .analysis-mode-control { flex:1 1 100%; } .analysis-mode-control select { flex:1; min-width:0; } #spectrum { height:300px; } #waterfall { height:390px; } h1 { font-size:20px; } .panel-head-tools { flex-wrap:wrap; } .subtitle { font-size:11px; } }
-    .record-toolbar { display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:8px; }
+    .record-toolbar { display:grid;grid-template-columns:1fr 1fr 1fr 1.3fr;gap:8px; }
     .record-toolbar button,.mode-picker { min-width:0;min-height:46px;font-size:16px; }
     .mode-picker { position:relative;display:flex;align-items:center;justify-content:center;border:1px solid #35455e;border-radius:5px;background:#1a2940;padding:5px; }
     .mode-picker select { position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:16px; }
@@ -97,6 +97,23 @@ SOFTWARE.
     .gain-control input::-webkit-slider-thumb { appearance:none;width:24px;height:24px;margin-top:-9px;border-radius:50%;background:#dbe88a; }
     .gain-control input::-moz-range-track { height:6px;background:#53657e;border-radius:3px; }
     .gain-control input::-moz-range-thumb { width:24px;height:24px;border:0;border-radius:50%;background:#dbe88a; }
+    .mode-picker { background:#302844;border-color:#65517f; }
+    .control-deck > details { margin:8px 0; }
+    .control-deck > details > summary { font-size:14px;font-weight:400;line-height:1.5;color:var(--text); }
+    .control-deck .metrics { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:14px 0 4px; }
+    .control-deck .metric { display:block;min-width:0; }
+    .control-deck .metric-label { font-size:12px;color:var(--muted); }
+    .control-deck .metric-label span { display:block;white-space:nowrap; }
+    .control-deck .metric-label span+span { font-size:8px;line-height:1.7; }
+    .control-deck .metric-value { font-size:clamp(14px,4vw,18px);white-space:nowrap; }
+    .session-card { margin:12px 0;padding:10px;border:1px solid #253247;border-radius:8px;background:#101a2b; }
+    .session-select { display:flex;flex-direction:column;gap:6px;margin:10px 0;min-width:0; }
+    .session-select select { width:100%;min-width:0;font-size:14px; }
+    .export-actions { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px; }
+    .export-actions button { min-width:0;min-height:46px;padding:6px;font-size:14px;overflow-wrap:anywhere; }
+    #recordDownload:not([hidden]) { display:block;margin-top:10px; }
+    #recordStatus,#sessionNotice { overflow-wrap:anywhere;margin:8px 0 0; }
+    .secondary-controls:not(:has(button:not([hidden]))) { display:none; }
   </style>
 </head>
 <body>
@@ -113,8 +130,9 @@ SOFTWARE.
 
     <section class="control-deck">
       <div class="record-toolbar">
-        <button id="recordStart" class="primary" type="button">开始记录</button>
-        <button id="recordStop" type="button" disabled>停止记录</button>
+        <button id="recordStart" class="primary" type="button">开始</button>
+        <button id="recordStop" type="button" disabled>停止</button>
+        <button id="clear" type="button">清空</button>
         <div class="mode-picker"><span id="modeCaption" aria-hidden="true">楼上噪声 ▾</span>          <select id="analysisMode" aria-label="历史频谱分析方式">
             <option value="mean">平均功率频谱（总体能量）</option>
             <option value="median">中位数频谱（稳定底噪）</option>
@@ -123,7 +141,7 @@ SOFTWARE.
             <option value="impact" selected>楼上噪声优化检测</option>
           </select></div>
       </div>
-      <div class="controls secondary-controls"><button id="clear" type="button">清空历史</button><button id="analyze" type="button" disabled>分析历史频谱</button><button id="recordResume" type="button" hidden>恢复记录</button></div>
+      <div class="controls secondary-controls"><button id="analyze" type="button" disabled>分析历史频谱</button><button id="recordResume" type="button" hidden>恢复记录</button></div>
       <label class="gain-control"><span>输入增益</span><input id="gain" type="range" min="-24" max="24" value="0" step="1"><output id="gainValue" for="gain">+0 dB</output></label>
       <details class="display-settings"><summary>显示设置 · 色阶与输入增益独立</summary>
         <form id="displaySettings" class="settings-grid">
@@ -136,27 +154,23 @@ SOFTWARE.
           <span id="displayError" role="status"></span>
         </form>
       </details>
+      <details><summary>检测参数 · 单次最长10分钟</summary><div id="detectSettings" class="settings-grid"></div></details>
       <div class="resolution" id="sourceNotice">尚未启动</div>
       <div class="resolution" id="resolution">FFT 32768 · 等待音频输入</div>
-      <details><summary>检测参数 · 单次最长10分钟</summary><div id="detectSettings" class="settings-grid"></div></details>
+      <section class="metrics">
+        <article class="metric"><div class="metric-label"><span id="recordPhase">未开始</span><span id="recordPhaseEn">READY</span></div><div class="metric-value" id="recordTime">00:00</div></article>
+        <article class="metric"><div class="metric-label"><span>最强频率</span><span>DOMINANT FREQUENCY</span></div><div class="metric-value" id="frequency">— Hz</div></article>
+        <article class="metric"><div class="metric-label"><span>相对电平</span><span>RELATIVE LEVEL</span></div><div class="metric-value" id="level">— dBFS</div></article>
+      </section>
+      <p id="recordStatus" role="status" aria-live="polite" hidden></p>
     </section>
 
-    <section class="metrics">
-      <article class="metric">
-        <div class="metric-label">DOMINANT FREQUENCY / 最强频率</div>
-        <div class="metric-value" id="frequency">— Hz</div>
-      </article>
-      <article class="metric">
-        <div class="metric-label">RELATIVE LEVEL / 相对电平</div>
-        <div class="metric-value" id="level">— dBFS</div>
-      </article>
-    </section>
-
-    <p id="recordStatus" role="status" aria-live="polite">未开始</p>
-      <details><summary>会话与导出</summary>
-        <p>本地会话：<select id="recordSaved" aria-label="本地已保存会话"><option value="">选择会话</option></select></p>
-        <div class="controls"><button id="recordExport" type="button" disabled>导出 ZIP</button><a id="recordDownload" hidden>下载 ZIP</a><button id="recordConfirm" type="button" disabled>确认已保存</button><button id="recordDelete" type="button" disabled>删除本地会话</button></div>
-      </details>
+    <details class="session-card" open><summary>会话与导出</summary>
+      <label class="session-select">本地会话<select id="recordSaved" aria-label="本地已保存会话"><option value="">选择会话</option></select></label>
+      <div class="export-actions"><button id="recordExport" type="button" disabled>导出 ZIP</button><button id="recordConfirm" type="button" disabled>确认已保存</button><button id="recordDelete" type="button" disabled>删除本地会话</button></div>
+      <a id="recordDownload" hidden>下载 ZIP</a>
+      <p id="sessionNotice" role="status" aria-live="polite" hidden></p>
+    </details>
 
     <section class="panel spectrum-stack">
       <div class="panel-head">
@@ -198,8 +212,8 @@ SOFTWARE.
       <div class="event-scroll"><table><thead><tr><th>ID</th><th>类型</th><th>开始秒</th><th>持续秒</th><th>滤波峰值dBFS</th><th>滤波RMS dBFS</th><th>增量dB</th><th>回听</th></tr></thead><tbody id="eventRows"></tbody></table></div>
       <audio id="recordAudio" controls preload="metadata" hidden></audio>
     </section>
-    <p class="footer-note">派生自 <a href="https://github.com/Arrow36/neon-noise">Arrow36/neon-noise</a> · <a href="https://github.com/GitHub-Ericcccc/neon-noise">独立维护版本</a> · 视觉参考 Spectroid，非官方版本</p>
     <div id="recordMetrics"></div>
+    <p class="footer-note">派生自 <a href="https://github.com/Arrow36/neon-noise">Arrow36/neon-noise</a> · <a href="https://github.com/GitHub-Ericcccc/neon-noise">独立维护版本</a> · 视觉参考 Spectroid，非官方版本</p>
     <details><summary>MIT 许可证</summary><pre class="license-text">MIT License
 
 Copyright (c) 2026 Arrow36
