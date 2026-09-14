@@ -31,6 +31,7 @@
   }
   async function start() {
     if(acquisition||recording)return;
+    if(window.location?.protocol==='file:'){say('无法开始记录：直接打开 HTML（file://）无法加载 AudioWorklet。请运行 node scripts/serve.cjs 8765，然后访问 http://127.0.0.1:8765/；手机请使用 HTTPS 测试地址。');return;}
     if(session?.persistenceError&&!session.exportConfirmed){say('上次会话未完整写入，请先导出并确认保存，避免覆盖内存中的录音。');return;}
     acquisition=true;lock(true);say('准备本地存储、麦克风与录音…');
     try {
