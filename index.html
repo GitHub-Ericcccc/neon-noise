@@ -53,7 +53,7 @@ SOFTWARE.
     .panel-title { font-size:12px; font-weight:700; } .panel-note { font-size:11px; color:var(--muted); }
     .panel-head-tools { display:flex; align-items:center; gap:10px; } .marker-reset { min-height:28px; font-size:11px; }
     .chart-wrap { position:relative; background:#08101e; } canvas { display:block; width:100%; touch-action:pan-y; }
-    #spectrum { height:320px; cursor:crosshair; } #waterfall { height:420px; cursor:crosshair; }
+    #spectrum { height:320px; cursor:crosshair; } #waterfall { height:840px; cursor:crosshair; }
     #sharedAxis { display:block; width:100%; height:52px; } .shared-axis-wrap { background:#0d1727; }
     .chart-overlay { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; user-select:none; overflow:hidden; }
     svg text { font-family:Consolas,"Microsoft YaHei",monospace; }
@@ -84,7 +84,7 @@ SOFTWARE.
     #impactPanel td,#impactPanel th { padding:6px; border-bottom:1px solid #35455e; text-align:left; }
     .impact-overlay { position:absolute; inset:0; height:100%; pointer-events:none; }
     #detectSettings input { width:100px; } #recordStatus { margin:8px 0; }
-    @media(max-width:760px) { .shell { padding:8px; } .metrics { gap:12px; } .metric { display:block; } .metric-label { font-size:9px; } .metric-value { font-size:16px; } .controls { gap:6px; } button,select { min-height:42px; } .analysis-mode-control { flex:1 1 100%; } .analysis-mode-control select { flex:1; min-width:0; } #spectrum { height:300px; } #waterfall { height:390px; } h1 { font-size:20px; } .panel-head-tools { flex-wrap:wrap; } .subtitle { font-size:11px; } }
+    @media(max-width:760px) { .shell { padding:8px; } .metrics { gap:12px; } .metric { display:block; } .metric-label { font-size:9px; } .metric-value { font-size:16px; } .controls { gap:6px; } button,select { min-height:42px; } .analysis-mode-control { flex:1 1 100%; } .analysis-mode-control select { flex:1; min-width:0; } #spectrum { height:300px; } #waterfall { height:780px; } h1 { font-size:20px; } .panel-head-tools { flex-wrap:wrap; } .subtitle { font-size:11px; } }
     .record-toolbar { display:grid;grid-template-columns:1fr 1fr 1fr 1.3fr;gap:8px; }
     .record-toolbar button,.mode-picker { min-width:0;min-height:46px;font-size:16px; }
     .mode-picker { position:relative;display:flex;align-items:center;justify-content:center;border:1px solid #35455e;border-radius:5px;background:#1a2940;padding:5px; }
@@ -196,7 +196,7 @@ SOFTWARE.
       </div>
       <div class="panel-head subhead">
         <div class="panel-title">SPECTRAL HISTORY / 历史频谱</div>
-        <div class="panel-note" id="historyWindow">TIME ↓ · 30 秒窗口</div>
+        <div class="panel-note" id="historyWindow">TIME ↓ · 60 秒窗口</div>
       </div>
       <div class="chart-wrap">
         <canvas id="waterfall"></canvas>
@@ -207,7 +207,7 @@ SOFTWARE.
 
     <div class="color-scale"><span id="colorLow">−110</span><div id="colorRamp"></div><span id="colorHigh">−30 dBFS</span><span>颜色饱和于两端</span></div>
     <section id="impactPanel">
-      <canvas id="energyTrace" aria-label="最近30秒低频能量曲线"></canvas>
+      <canvas id="energyTrace" aria-label="最近60秒低频能量曲线"></canvas>
       <div class="event-scroll"><table><thead><tr><th>ID</th><th>类型</th><th>开始秒</th><th>持续秒</th><th>滤波峰值dBFS</th><th>滤波RMS dBFS</th><th>增量dB</th><th>回听</th></tr></thead><tbody id="eventRows"></tbody></table></div>
       <audio id="recordAudio" controls preload="metadata" hidden></audio>
     </section>
@@ -245,7 +245,7 @@ SOFTWARE.</pre></details>
     const MIN_HZ = 20;
     const MAX_HZ = 20000;
     const HISTORY_INTERVAL_MS = 110;
-    const HISTORY_WINDOW_MS = 30000;
+    const HISTORY_WINDOW_MS = 60000;
     const view = { minDb: -120, maxDb: 0, waterfallMinDb: -110, waterfallMaxDb: -30 };
     let holdMode = "decay";
 
@@ -1035,7 +1035,7 @@ SOFTWARE.</pre></details>
       }
       waterfallCtx.restore();
       renderWaterfallOverlay(width, height);
-      historyWindowLabel.textContent = "TIME ↓ · 30 秒窗口";
+      historyWindowLabel.textContent = "TIME ↓ · 60 秒窗口";
       window.ImpactLogging?.redraw();
     }
 
@@ -1823,7 +1823,7 @@ SOFTWARE.</pre></details>
     window.NoiseInput = {
       ensure: async () => { await prepareCapture(); return {context:audioContext,stream:microphoneStream,source:microphoneSource}; },
       begin: beginCapture, freeze: freezeCapture, release: releaseCapture,
-      frequencyX: frequencyToX, latestHistory: () => historyFrames.at(-1)
+      historyWindowMs: HISTORY_WINDOW_MS, frequencyX: frequencyToX, latestHistory: () => historyFrames.at(-1)
     };
   </script>
   <script src="record-logging.js"></script>

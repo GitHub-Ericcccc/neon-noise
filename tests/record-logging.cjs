@@ -45,7 +45,7 @@ async function controllerHarness() {
   add(option){this.append(option);} replaceChildren(...items){this.children=items;}get childElementCount(){return this.children.length;}
   querySelectorAll(){return this.children.flatMap(row=>row.children.flatMap(td=>td.children));}
   removeAttribute(name){delete this[name];}play(){return Promise.resolve();}
-  getContext(){return new Proxy({},{get:(_,key)=>key==='measureText'?()=>({width:10}):()=>{}});}
+  getContext(){this.moves=[];return new Proxy({},{get:(_,key)=>key==='measureText'?()=>({width:10}):(...args)=>{if(key==='moveTo')this.moves.push(args);}});}
   addEventListener(type,fn){this['on'+type]=fn;}
  }
  const get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};get('analysisMode').value='impact';
@@ -57,8 +57,9 @@ async function controllerHarness() {
  const storage={save:async s=>saved.set(s.id,structuredClone(s)),list:async()=>[...saved.values()],chunk:async(id,i,blob)=>{if(failChunks)throw Error('QuotaExceededError');persisted[i]=blob;},chunks:async()=>persisted,remove:async s=>saved.delete(s.id)};
  const document={hidden:false,getElementById:get,createElement:()=>new Element(),querySelector:()=>({textContent:'MIT License\nCopyright (c) 2026 Arrow36'}),addEventListener:(t,fn)=>listeners.set(t,fn)};
  const sandbox={console,document,navigator:{userAgent:'test Safari'},performance:{now:()=>now},crypto:globalThis.crypto,structuredClone,Blob,MediaRecorder:Recorder,AudioWorkletNode:Worklet,Option:class extends Element{constructor(text,value){super();this.textContent=text;this.value=value;}},URL:{createObjectURL:()=> 'blob:test',revokeObjectURL(){}},setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length;},clearTimeout(){},setInterval:(fn,delay)=>{timers.push({fn,delay});return timers.length;},clearInterval(){},confirm:()=>true};
- let began=0,frozen=0,released=0; sandbox.window=sandbox;sandbox.ImpactCore=core;sandbox.RecordFiles={...files,openStore:async()=>storage,buildExport:(s,a,l)=>files.buildExport(s,a,l,core)};sandbox.NoiseInput={ensure:async()=>({context,stream:{getAudioTracks:()=>[track]},source:{connect(){},disconnect(){}}}),begin(){began++;},freeze(){frozen++;},release:async()=>{assert.notEqual(recorder?.state,'recording');released++;},frequencyX:()=>50,latestHistory:()=>null};sandbox.addEventListener=()=>{};
- vm.runInNewContext(fs.readFileSync(path.join(root,'record-logging.js'),'utf8'),sandbox);
+ let began=0,frozen=0,released=0; sandbox.window=sandbox;sandbox.ImpactCore=core;sandbox.RecordFiles={...files,openStore:async()=>storage,buildExport:(s,a,l)=>files.buildExport(s,a,l,core)};sandbox.NoiseInput={historyWindowMs:60000,ensure:async()=>({context,stream:{getAudioTracks:()=>[track]},source:{connect(){},disconnect(){}}}),begin(){began++;},freeze(){frozen++;},release:async()=>{assert.notEqual(recorder?.state,'recording');released++;},frequencyX:()=>50,latestHistory:()=>null};sandbox.addEventListener=()=>{};
+ const controller=fs.readFileSync(path.join(root,'record-logging.js'),'utf8');
+ vm.runInNewContext(controller.replace(/\}\)\(\);\s*$/,`window.testHistoryLayout=()=>{clock=0;liveSession=true;session={elapsedMs:60000,events:[0,30000,60000].map((startMs,id)=>({startMs,id,type:'impact',durationMs:100,peakDbfs:-40,rmsDbfs:-50,incrementDb:10})),trace:[],settings:C.DEFAULTS};render();};})();`),sandbox);
  await new Promise(resolve=>setImmediate(resolve));sandbox.location={protocol:'file:'};await get('recordStart').onclick();assert.equal(recorder,undefined);assert.equal(sandbox.ImpactLogging.isRecording(),false);assert.match(get('recordStatus').textContent,/file:\/\/.*http:\/\/127/);assert.equal(get('recordStart').disabled,false);sandbox.location.protocol='http:';await get('recordStart').onclick();assert.equal(recorder.state,'recording');assert.equal(sandbox.ImpactLogging.isRecording(),true);assert.equal(get('detect-triggerDb').disabled,true);
  function energy(to,level=-80){for(now+=20;now<=to;now+=20){context.currentTime=now/1000;node.port.onmessage({data:frame(now,level)});}now=to;}
  assert.equal(get('recordPhase').textContent,'学习中');energy(6000);assert.equal(get('recordPhase').textContent,'记录中');energy(6080,-50);energy(6800);assert.match(get('recordMetrics').textContent,/候选 1 次/);
@@ -74,6 +75,9 @@ async function controllerHarness() {
  assert.equal(began,2);assert.ok(frozen>=2);assert.ok(released>=2);
  const previousCount=saved.size;await get('recordStart').onclick();const same=recorder;await get('recordStart').onclick();assert.equal(recorder,same);await get('recordStop').onclick();await new Promise(resolve=>setImmediate(resolve));assert.equal(get('recordStatus').textContent,'已停止');assert.ok(saved.size>previousCount);assert.ok(persisted.some(Boolean));
  const releasesBeforeFailure=released;const originalEnsure=sandbox.NoiseInput.ensure;sandbox.NoiseInput.ensure=async()=>{throw Error('microphone setup failed');};await get('recordStart').onclick();assert.ok(released>releasesBeforeFailure);assert.equal(get('recordStart').disabled,false);assert.equal(sandbox.ImpactLogging.isRecording(),false);sandbox.NoiseInput.ensure=originalEnsure;
+ sandbox.NoiseInput.latestHistory=()=>({performanceMs:60000});sandbox.testHistoryLayout();
+ assert.deepEqual(get('impactWaterfallOverlay').moves.map(p=>p[1]),[160,80,0]);
+ assert.deepEqual(get('energyTrace').moves.map(p=>p[0]),[0,195,390]);
  return [...saved.values()];
 }
 
