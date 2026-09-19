@@ -5,6 +5,7 @@
   const ui={panel:$('impactPanel'),status:$('recordStatus'),start:$('recordStart'),stop:$('recordStop'),export:$('recordExport'),confirm:$('recordConfirm'),remove:$('recordDelete'),saved:$('recordSaved'),audio:$('recordAudio'),rows:$('eventRows'),metrics:$('recordMetrics'),canvas:$('energyTrace')};
   let store,session,detector,node,sink,recorder,input,origin=0,clock=0,timer,heartbeat,saveQueue=Promise.resolve(),chunks=[],bytes=0,stopping=false,exportReady=false,url,downloadUrl;
   let learning=false,acquisition=false,recording=false,interrupted=false,resuming=false,lastFrameAt=0,paintAt=0,saveAt=0,workletLoaded=false,liveSession=false;
+  const historyWindowMs=window.NoiseInput.historyWindowMs;
   const fields=Object.keys(C.DEFAULTS);
   const labels={mainLow:'主频带下限Hz',mainHigh:'主频带上限Hz',auxLow:'辅助下限Hz',auxHigh:'辅助上限Hz',focusLow:'重点下限Hz',focusHigh:'重点上限Hz',windowMs:'能量窗口ms',hopMs:'更新间隔ms',warmupMs:'背景学习ms',backgroundMs:'背景窗口ms',triggerDb:'触发增量dB',riseDb:'上升门槛dB',endDb:'结束增量dB',endHoldMs:'结束保持ms',mergeMs:'振铃合并ms',sustainedMs:'持续增强ms',maxMs:'会话上限ms（固定）'};
   for(const key of fields){const label=document.createElement('label'),field=document.createElement('input');label.textContent=labels[key];field.type='number';field.step='any';field.id='detect-'+key;field.value=C.DEFAULTS[key];if(key==='maxMs')field.readOnly=true;label.append(field);$('detectSettings').append(label);}
@@ -119,17 +120,17 @@
       ui.rows.replaceChildren();for(const e of session?.events||[]) {const row=document.createElement('tr');for(const value of [e.id,e.type==='impact'?'候选撞击':'持续增强',(e.startMs/1000).toFixed(2),(e.durationMs/1000).toFixed(2),e.peakDbfs.toFixed(1),e.rmsDbfs.toFixed(1),e.incrementDb.toFixed(1)]){const td=document.createElement('td');td.textContent=value;row.append(td);}const td=document.createElement('td'),button=document.createElement('button');button.type='button';button.textContent=recording?'结束后播放':'定位播放';button.disabled=recording;button.onclick=()=>{ui.audio.currentTime=Math.max(0,e.startMs/1000-.5);ui.audio.play().catch(err=>say('播放失败：'+err.message));};td.append(button);row.append(td);ui.rows.append(row);}
     } else for(const button of ui.rows.querySelectorAll('button')){button.disabled=recording;button.textContent=recording?'结束后播放':'定位播放';}
     const ctx=ui.canvas.getContext('2d'),w=Math.max(1,ui.canvas.clientWidth),h=160;ui.canvas.width=w;ui.canvas.height=h;ctx.fillStyle='#08101e';ctx.fillRect(0,0,w,h);
-    const frames=(session?.trace||[]).filter(f=>f.timeMs>=(session.elapsedMs||0)-30000),now=session?.elapsedMs||0,min=-120,max=-20;
-    for(const [field,color] of [['mainDb','#f2d85b'],['backgroundDb','#78dbe4']]) {ctx.strokeStyle=color;ctx.beginPath();let segment=null;for(const f of frames){const x=w*(1-(now-f.timeMs)/30000),y=h*(1-Math.max(0,Math.min(1,(f[field]-min)/(max-min))));if(segment!==f.segment)ctx.moveTo(x,y);else ctx.lineTo(x,y);segment=f.segment;}ctx.stroke();}
-    ctx.fillStyle='#a2b0c5';ctx.font='11px system-ui';ctx.fillText('最近30秒：黄=主频带 RMS；青=背景；纵轴 −120～−20 dBFS',8,14);
-    for(const e of session?.events||[])if(now-e.startMs<=30000){const x=w*(1-(now-e.startMs)/30000);ctx.strokeStyle='#ef5268';ctx.beginPath();ctx.moveTo(x,20);ctx.lineTo(x,h);ctx.stroke();}
+    const frames=(session?.trace||[]).filter(f=>f.timeMs>=(session.elapsedMs||0)-historyWindowMs),now=session?.elapsedMs||0,min=-120,max=-20;
+    for(const [field,color] of [['mainDb','#f2d85b'],['backgroundDb','#78dbe4']]) {ctx.strokeStyle=color;ctx.beginPath();let segment=null;for(const f of frames){const x=w*(1-(now-f.timeMs)/historyWindowMs),y=h*(1-Math.max(0,Math.min(1,(f[field]-min)/(max-min))));if(segment!==f.segment)ctx.moveTo(x,y);else ctx.lineTo(x,y);segment=f.segment;}ctx.stroke();}
+    ctx.fillStyle='#a2b0c5';ctx.font='11px system-ui';ctx.fillText('最近60秒：黄=主频带 RMS；青=背景；纵轴 −120～−20 dBFS',8,14);
+    for(const e of session?.events||[])if(now-e.startMs<=historyWindowMs){const x=w*(1-(now-e.startMs)/historyWindowMs);ctx.strokeStyle='#ef5268';ctx.beginPath();ctx.moveTo(x,20);ctx.lineTo(x,h);ctx.stroke();}
     drawMarkers();
   }
   function drawMarkers() {
     const active=$('analysisMode').value==='impact';
     for(const id of ['impactSpectrumOverlay','impactWaterfallOverlay']) {
       const canvas=$(id);canvas.hidden=!active;if(!active)continue;const target=$(id==='impactSpectrumOverlay'?'spectrum':'waterfall'),w=target.clientWidth,h=target.clientHeight;canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d');const focus=session?.settings||C.DEFAULTS;const left=window.NoiseInput.frequencyX(focus.focusLow,w),right=window.NoiseInput.frequencyX(focus.focusHigh,w);ctx.fillStyle='rgba(242,216,91,.10)';ctx.fillRect(left,0,right-left,h);
-      if(id==='impactWaterfallOverlay'&&session&&liveSession){const history=window.NoiseInput.latestHistory();if(history){for(const e of session.events){const age=history.performanceMs-(clock+e.startMs);if(age>=0&&age<=30000){const y=age/30000*h;ctx.strokeStyle='#ef5268';ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();ctx.fillStyle='#ef5268';ctx.font='10px system-ui';ctx.fillText('#'+e.id,right+2,y+10);}}}}
+      if(id==='impactWaterfallOverlay'&&session&&liveSession){const history=window.NoiseInput.latestHistory();if(history){for(const e of session.events){const age=history.performanceMs-(clock+e.startMs);if(age>=0&&age<=historyWindowMs){const y=age/historyWindowMs*h;ctx.strokeStyle='#ef5268';ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();ctx.fillStyle='#ef5268';ctx.font='10px system-ui';ctx.fillText('#'+e.id,right+2,y+10);}}}}
     }
   }
   window.ImpactLogging={isRecording:()=>recording,redraw:drawMarkers};
